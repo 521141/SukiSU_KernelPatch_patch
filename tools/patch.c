@@ -25,7 +25,6 @@
 #include "kpm.h"
 #include "sha256.h"
 
-
 void read_kernel_file(const char *path, kernel_file_t *kernel_file)
 {
     int img_offset = 0;

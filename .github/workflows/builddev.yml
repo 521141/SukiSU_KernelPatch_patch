@@ -1,0 +1,222 @@
+name: Build kpimg & patch (Android + Linux) - Manual
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          cmake g++ gcc make git xxd unzip curl \
+          zlib1g-dev libssl-dev bc bison flex \
+          libelf-dev libncurses5-dev libncursesw5-dev
+
+    - name: Download and setup Android NDK r29
+      run: |
+        set -e
+
+        echo "Downloading android-ndk-r29-linux.zip ..."
+        curl -L --retry 4 --retry-delay 5 --progress-bar \
+          -o android-ndk-r29-linux.zip \
+          https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+
+        echo ""
+        echo "Download finished. File size check:"
+        ls -lh android-ndk-r29-linux.zip
+        echo ""
+
+        if [ ! -s android-ndk-r29-linux.zip ]; then
+          echo "Error: downloaded file is empty!"
+          exit 1
+        fi
+
+        echo "Extracting NDK..."
+        unzip -q android-ndk-r29-linux.zip -d .
+        rm -f android-ndk-r29-linux.zip
+
+        echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r29" >> $GITHUB_ENV
+        echo "ANDROID_NDK=$GITHUB_WORKSPACE/android-ndk-r29" >> $GITHUB_ENV
+
+    - name: Show NDK path
+      run: |
+        echo "ANDROID_NDK_HOME = $ANDROID_NDK_HOME"
+        ls -la "$ANDROID_NDK_HOME" || echo "cmake dir not found"
+        echo "查看其他目录"
+        ls -la "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" || echo "cmake dir not found"
+
+    - name: Build kptools - Android arm64-v8a
+      working-directory: ./tools
+      env:
+        ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+      run: |
+        mkdir -p build/android && cd build/android
+        cmake \
+          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DANDROID_PLATFORM=android-33 \
+          -DANDROID_ABI=arm64-v8a ../..
+        cmake --build .
+        # 重命名Android版本的可执行文件
+        if [ -f kptools ]; then
+          mv kptools kptools-android
+        fi
+
+    - name: Build kptools - Linux x86_64
+      working-directory: ./tools
+      run: |
+        mkdir -p build/linux && cd build/linux
+        cmake ../..
+        make
+        # 重命名Linux版本的可执行文件
+        if [ -f kptools ]; then
+          mv kptools kptools-linux
+        fi
+        
+    - name: Build kernel kpimg
+      working-directory: ./kernel
+      run: |
+        make clean || true
+        make -j$(nproc) || echo "Kernel build had some issues, continuing..."
+
+    - name: Prepare patch resources & encrypt
+      run: |
+        mkdir -p patch/res
+
+        # 复制Android版本的可执行文件
+        if [ -f tools/build/android/kptools-android ]; then
+          cp -f tools/build/android/kptools-android patch/res/
+        else
+          echo "Warning: tools/build/android/kptools-android not found!"
+        fi
+        
+        # 复制Linux版本的可执行文件
+        if [ -f tools/build/linux/kptools-linux ]; then
+          cp -f tools/build/linux/kptools-linux patch/res/
+        else
+          echo "Warning: tools/build/linux/kptools-linux not found!"
+        fi
+        
+        # 复制内核映像
+        if [ -f kernel/kpimg ]; then
+          cp -f kernel/kpimg patch/res/
+        else
+          echo "Warning: kernel/kpimg not found!"
+        fi
+
+        # 编译加密工具并加密kpimg
+        cd patch
+        if [ -f encrypt.cpp ]; then
+          g++ -o encrypt encrypt.cpp -O3 -std=c++17 -lz || echo "encrypt compile failed"
+          chmod +x ./encrypt 2>/dev/null || true
+          
+          if [ -f encrypt ] && [ -f res/kpimg ]; then
+            ./encrypt res/kpimg res/kpimg.enc 2>/dev/null || echo "encrypt failed"
+          fi
+        fi
+
+        # 生成头文件（如果文件存在）
+        mkdir -p include
+        
+        if [ -f res/kpimg.enc ]; then
+          xxd -i res/kpimg.enc > include/kpimg_enc.h 2>/dev/null || true
+        fi
+        
+        if [ -f res/kptools-linux ]; then
+          xxd -i res/kptools-linux > include/kptools_linux.h 2>/dev/null || true
+        fi
+        
+        if [ -f res/kptools-android ]; then
+          xxd -i res/kptools-android > include/kptools_android.h 2>/dev/null || true
+        fi
+
+    - name: Build patch - Android arm64-v8a
+      working-directory: ./patch
+      env:
+        ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+      run: |
+        mkdir -p build-android && cd build-android
+        cmake .. \
+          -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DANDROID_ABI=arm64-v8a \
+          -DANDROID_PLATFORM=android-33 \
+          -DANDROID_STL=c++_static
+        cmake --build .
+        
+        # 检查构建结果
+        echo "Checking build results in build-android directory:"
+        ls -la
+        
+        # 查找可执行文件并复制
+        if [ -f patch_android ]; then
+          echo "Found patch_android, copying..."
+          cp -f patch_android ../../patch_android
+        elif [ -f patch ]; then
+          echo "Found patch, copying and renaming..."
+          cp -f patch ../../patch_android
+        else
+          echo "Error: No patch executable found!"
+          echo "Trying to find any executable..."
+          find . -type f -executable -name "*" -exec ls -la {} \;
+        fi
+
+    - name: Build patch - Linux x86_64
+      working-directory: ./patch
+      run: |
+        mkdir -p build-linux && cd build-linux
+        cmake .. && make
+        
+        # 检查构建结果
+        echo "Checking build results in build-linux directory:"
+        ls -la
+        
+        # 重命名Linux版本的补丁程序
+        if [ -f patch_linux ]; then
+          echo "Found patch_linux, copying..."
+          cp -f patch_linux ../../patch_linux
+        elif [ -f patch ]; then
+          echo "Found patch, renaming and copying..."
+          mv -f patch patch_linux 2>/dev/null || true
+          cp -f patch_linux ../../patch_linux 2>/dev/null || true
+        else
+          echo "Error: No patch executable found!"
+          echo "Trying to find any executable..."
+          find . -type f -executable -name "*" -exec ls -la {} \;
+        fi
+
+    - name: Check artifacts before upload
+      run: |
+        echo "Checking artifacts before upload:"
+        ls -la patch_android 2>/dev/null || echo "patch_android not found"
+        ls -la patch_linux 2>/dev/null || echo "patch_linux not found"
+        echo "Patch directory contents:"
+        ls -la patch/res/ 2>/dev/null || echo "patch/res/ not found"
+        echo "Include directory contents:"
+        ls -la patch/include/ 2>/dev/null || echo "patch/include/ not found"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          patch_android
+          patch_linux
+          patch/res/kpimg
+          patch/res/kpimg.enc
+          patch/res/kptools-android
+          patch/res/kptools-linux
+          patch/include/kpimg_enc.h
+          patch/include/kptools_android.h
+          patch/include/kptools_linux.h
+        if-no-files-found: error
+        retention-days: 14

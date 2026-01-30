@@ -54,6 +54,7 @@ static inline int lockdep_tasklist_lock_is_held(void)
 {
     kfunc_call(lockdep_tasklist_lock_is_held);
     kfunc_not_found();
+    return 0;
 }
 
 static inline asmlinkage void schedule_tail(struct task_struct *prev)
@@ -72,7 +73,7 @@ static inline int sched_fork(unsigned long clone_flags, struct task_struct *p)
 {
     kfunc_call(sched_fork, clone_flags, p);
     kfunc_not_found();
-
+    return 0;
 }
 
 static inline void sched_cgroup_fork(struct task_struct *p, struct kernel_clone_args *kargs)
@@ -95,19 +96,14 @@ static inline void sched_dead(struct task_struct *p)
 
 static inline void __noreturn do_task_dead(void)
 {
-    while (1) {
     kfunc_call_void(do_task_dead);
     kfunc_not_found();
-    }
 }
 
 static inline void __noreturn make_task_dead(int signr)
-{   
-    while (1)
-    {
+{
     kfunc_call_void(make_task_dead, signr);
     kfunc_not_found();
-    }
 }
 
 static inline void proc_caches_init(void)
@@ -133,6 +129,7 @@ static inline int copy_thread(unsigned long clone_flags, unsigned long stack_sta
 {
     kfunc_call(copy_thread, clone_flags, stack_start, stk_sz, p, tls);
     kfunc_not_found();
+    return 0;
 }
 
 static inline void flush_thread(void)
@@ -146,12 +143,9 @@ static inline void exit_thread(struct task_struct *tsk)
     kfunc_not_found();
 }
 static inline __noreturn void do_group_exit(int exit_code)
-{   
-    while (1)
-    {
+{
     kfunc_call_void(do_group_exit, exit_code);
     kfunc_not_found();
-    }
 }
 static inline void exit_files(struct task_struct *tsk)
 {
@@ -167,36 +161,43 @@ static inline pid_t kernel_clone(struct kernel_clone_args *kargs)
 {
     kfunc_call(kernel_clone, kargs);
     kfunc_not_found();
+    return 0;
 }
 static inline struct task_struct *create_io_thread(int (*fn)(void *), void *arg, int node)
 {
     kfunc_call(create_io_thread, fn, arg, node);
     kfunc_not_found();
+    return 0;
 }
 static inline struct task_struct *fork_idle(int cpu)
 {
     kfunc_call(fork_idle, cpu);
     kfunc_not_found();
+    return 0;
 }
 static inline struct mm_struct *copy_init_mm(void)
 {
     kfunc_call(copy_init_mm);
     kfunc_not_found();
+    return 0;
 }
 static inline pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
     kfunc_call(kernel_thread, fn, arg, flags);
     kfunc_not_found();
+    return 0;
 }
 static inline pid_t user_mode_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
     kfunc_call(user_mode_thread, fn, arg, flags);
     kfunc_not_found();
+    return 0;
 }
 static inline int kernel_wait(pid_t pid, int *stat)
 {
     kfunc_call(kernel_wait, pid, stat);
     kfunc_not_found();
+    return 0;
 }
 static inline void free_task(struct task_struct *tsk)
 {
