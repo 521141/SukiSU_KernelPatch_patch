@@ -38,7 +38,7 @@ CONFIG_KALLSYMS=y
 
 Currently only supports arm64 architecture.  
 
-Linux 3.18 - 6.6 (theoretically)  
+Linux 3.18 - 6.12 (theoretically)  
 
 ## Get Involved
 
